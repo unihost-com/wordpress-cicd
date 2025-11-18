@@ -1,6 +1,6 @@
 # Simple WordPress CI/CD Project
 
-![Build Status](https://img.shields.io/github/actions/workflow/status/unihost-com/wordpress-cicd/deploy.yml?branch=main&style=flat-square)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/unihost-com/wordpress-cicd/deploy.yml?branch=dev&style=flat-square)
 ![WordPress Version](https://img.shields.io/badge/WordPress-6.x-blue?style=flat-square)
 ![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-purple?style=flat-square)
 
