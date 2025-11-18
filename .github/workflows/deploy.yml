@@ -78,8 +78,8 @@ jobs:
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEV_SERVER_IP }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          username: ${{ secrets.DEV_SSH_USER }}
+          key: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
           source: ".env.dev,Dockerfile,docker-compose.dev.yml,init.sh,wp-content/*"
           target: "/opt/wordpress-dev/"
           overwrite: true
@@ -88,8 +88,8 @@ jobs:
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.DEV_SERVER_IP }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          username: ${{ secrets.DEV_SSH_USER }}
+          key: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
           script: |
             cd /opt/wordpress-dev
 
@@ -154,8 +154,8 @@ jobs:
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.MAIN_SERVER_IP }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          username: ${{ secrets.MAIN_SSH_USER }}
+          key: ${{ secrets.MAIN_SSH_PRIVATE_KEY }}
           source: ".env.main,Dockerfile,docker-compose.main.yml,init.sh,wp-content/*"
           target: "/opt/wordpress-main/"
           overwrite: true
@@ -164,8 +164,8 @@ jobs:
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.MAIN_SERVER_IP }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          username: ${{ secrets.MAIN_SSH_USER }}
+          key: ${{ secrets.MAIN_SSH_PRIVATE_KEY }}
           script: |
             cd /opt/wordpress-main
 
