@@ -1,0 +1,201 @@
+name: Deploy WordPress
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - main
+    types: [closed]
+
+# ----------------------------------------------------------------------
+# Helper: detect changes only in wp-content/
+# ----------------------------------------------------------------------
+# The `git diff` command returns the list of changed files between the
+# current commit and the previous one (push) or between the PR base and
+# the PR head (pull_request).  If any file starts with wp-content/ we
+# set the output `changed` to true.
+# ----------------------------------------------------------------------
+
+jobs:
+  check-wp-content:
+    name: Check wp-content changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2                     # needed for push diff
+
+      - name: Detect wp-content changes
+        id: diff
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # push → compare with previous commit
+            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^wp-content/' || true)
+          else
+            # pull_request → compare with base branch
+            CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '^wp-content/' || true)
+          fi
+
+          if [[ -n "$CHANGED" ]]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "wp-content files changed:"
+            echo "$CHANGED"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No wp-content changes – skipping deploy"
+          fi
+
+  deploy-dev:
+    name: Deploy to Development
+    needs: check-wp-content
+    if: >
+      github.ref == 'refs/heads/dev' &&
+      needs.check-wp-content.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env.dev file
+        run: |
+          cat > .env.dev << EOF
+          TRAEFIK_EMAIL=${{ secrets.DEV_TRAEFIK_EMAIL }}
+          WP_DOMAIN=${{ secrets.DEV_WP_DOMAIN }}
+          WP_DB_USER=${{ secrets.DEV_WP_DB_USER }}
+          WP_DB_PASSWORD=${{ secrets.DEV_WP_DB_PASSWORD }}
+          WP_DB_NAME=${{ secrets.DEV_WP_DB_NAME }}
+          MYSQL_ROOT_PASSWORD=${{ secrets.DEV_MYSQL_ROOT_PASSWORD }}
+          EOF
+
+      - name: Copy files to Dev Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_SERVER_IP }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: ".env.dev,Dockerfile,docker-compose.dev.yml,init.sh,wp-content/*"
+          target: "/opt/wordpress-dev/"
+          overwrite: true
+
+      - name: Build & Deploy Dev Stack
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.DEV_SERVER_IP }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/wordpress-dev
+
+            # Prepare server for deploy docker
+            bash ./init.sh dev
+
+            # Create network if not exists
+            docker network create traefik 2>/dev/null || true
+
+            # Build image locally
+            docker build -t wordpress-dev:latest .
+
+            # Deploy with docker-compose
+            # Start full stack if not running
+            if ! docker compose -f docker-compose.dev.yml ps | grep -q "Up"; then
+              echo "First-time deploy: starting full stack..."
+              docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+            else
+              echo "Updating WordPress container only..."
+              docker volume rm wordpress-dev_web_data 2>/dev/null || true
+              docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --no-deps --build web
+            fi
+
+            # Copy custom files
+            rsync -aq ./wp-content/ $(docker volume inspect wordpress-dev_web_data --format '{{ .Mountpoint }}')/wp-content/
+            chown -R 33:33 $(docker volume inspect wordpress-dev_web_data --format '{{ .Mountpoint }}')/wp-content/
+
+            # Wait for health
+            echo "Waiting for WordPress to be healthy..."
+            until docker inspect --format='{{.State.Health.Status}}' $(docker compose -f docker-compose.dev.yml ps -q web) | grep -q healthy; do
+              sleep 5
+            done
+            echo "WordPress Dev is healthy!"
+
+  deploy-main:
+    name: Deploy to Production
+    needs: check-wp-content
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      needs.check-wp-content.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env.main file
+        run: |
+          cat > .env.main << EOF
+          TRAEFIK_EMAIL=${{ secrets.MAIN_TRAEFIK_EMAIL }}
+          WP_DOMAIN=${{ secrets.MAIN_WP_DOMAIN }}
+          WP_DB_USER=${{ secrets.MAIN_WP_DB_USER }}
+          WP_DB_PASSWORD=${{ secrets.MAIN_WP_DB_PASSWORD }}
+          WP_DB_NAME=${{ secrets.MAIN_WP_DB_NAME }}
+          MYSQL_ROOT_PASSWORD=${{ secrets.MAIN_MYSQL_ROOT_PASSWORD }}
+          EOF
+
+      - name: Copy files to Main Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.MAIN_SERVER_IP }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: ".env.main,Dockerfile,docker-compose.main.yml,init.sh,wp-content/*"
+          target: "/opt/wordpress-main/"
+          overwrite: true
+
+      - name: Build & Deploy Main Stack
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.MAIN_SERVER_IP }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/wordpress-main
+
+            # Prepare server for deploy docker 
+            bash ./init.sh main
+
+            # Create network if not exists
+            docker network create traefik 2>/dev/null || true
+
+            # Build image locally
+            docker build -t wordpress-main:latest .
+
+            # Deploy with docker-compose
+            # Start full stack if not running
+            if ! docker compose -f docker-compose.main.yml ps | grep -q "Up"; then
+              echo "First-time deploy: starting full stack..."
+              docker compose -f docker-compose.main.yml --env-file .env.main up -d
+            else
+              echo "Updating WordPress container only..."
+              docker volume rm wordpress-main_web_data 2>/dev/null || true
+              docker compose -f docker-compose.main.yml --env-file .env.main up -d --no-deps --build web
+            fi
+
+            # Copy custom files
+            rsync -aq ./wp-content/ $(docker volume inspect wordpress-main_web_data --format '{{ .Mountpoint }}')/wp-content/
+            chown -R 33:33 $(docker volume inspect wordpress-main_web_data --format '{{ .Mountpoint }}')/wp-content/
+
+            # Wait for health
+            echo "Waiting for WordPress to be healthy..."
+            until docker inspect --format='{{.State.Health.Status}}' $(docker compose -f docker-compose.main.yml ps -q web) | grep -q healthy; do
+              sleep 5
+            done
+            echo "WordPress Main is healthy!"
