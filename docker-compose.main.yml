@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   traefik:
-    image: traefik:v2.10
+    image: traefik:latest
     command:
       - "--api.insecure=false"
       - "--providers.docker=true"
@@ -20,7 +20,7 @@ services:
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - traefik_acme:/acme.json
+      - ./acme.json:/acme.json
     networks:
       - traefik
 
@@ -71,7 +71,6 @@ services:
 volumes:
   web_data:
   db_data:
-  traefik_acme:
 
 networks:
   traefik:
