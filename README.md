@@ -14,6 +14,7 @@ The pipeline is automated using **GitHub Actions** to ensure smooth, safe, and c
 
 This repository uses a **Git-based workflow**. Deployments are triggered automatically based on the branch you push to.
 
+> **Note:** Deployment will only be performed if files in the `wp-content` directory are changed. 
 
 ### The Pipeline Stages
 1.  **Trigger**: A developer pushes code to GitHub.

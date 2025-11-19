@@ -1,4 +1,4 @@
-=== Advanced Media Offloader ===
+ === Advanced Media Offloader ===
 Contributors: masoudin, bahreynipour, wpfitter
 Tags: media, offload, s3, digitalocean, cloudflare
 Requires at least: 5.6
